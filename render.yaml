@@ -11,13 +11,11 @@ services:
     region: oregon
     plan: free
     rootDir: backend
-    buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt && python init_db.py
+    buildCommand: pip install --upgrade pip setuptools wheel && pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: subflow-db
-          property: connectionURI
+        value: "sqlite:///./subflow.db"
       - key: SECRET_KEY
         generateValue: true
       - key: PYTHON_VERSION
@@ -47,10 +45,3 @@ services:
           name: subflow-backend
           property: hostport
 
-# ── Managed Database ─────────────────────────
-databases:
-  - name: subflow-db
-    plan: free
-    region: oregon
-    databaseName: subflow_db
-    user: subflow
