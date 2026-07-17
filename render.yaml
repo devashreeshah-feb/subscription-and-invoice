@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────
+# Render Blueprint – SubFlow (Subscription & Invoice)
+# Docs: https://docs.render.com/blueprint-spec
+# ──────────────────────────────────────────────
+
+services:
+  # ── Backend (FastAPI) ──────────────────────
+  - type: web
+    name: subflow-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: subflow-db
+          property: connectionURI
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.11.6"
+
+  # ── Frontend (React + Vite) ────────────────
+  - type: web
+    name: subflow-frontend
+    runtime: static
+    region: oregon
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: subflow-backend
+          property: hostport
+
+# ── Managed Database ─────────────────────────
+databases:
+  - name: subflow-db
+    plan: free
+    region: oregon
+    databaseName: subflow_db
+    user: subflow
