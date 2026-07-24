@@ -49,7 +49,7 @@ function RegisterPage() {
         setError(data.detail || 'Registration failed')
       }
     } catch (err) {
-      setError('Network error - Is the backend running?')
+      setError('Network error - Unable to connect to backend. If deployed on Render Free Tier, the backend service spins down when idle and takes ~30 seconds to wake up. Please wait a moment and try again.')
     }
     setLoading(false)
   }
@@ -129,7 +129,7 @@ function LoginPage({ setToken }: { setToken: (t: string) => void }) {
         setError(data.detail || 'Login failed')
       }
     } catch (err) {
-      setError('Network error - Is the backend running?')
+      setError('Network error - Unable to connect to backend. If deployed on Render Free Tier, the backend service spins down when idle and takes ~30 seconds to wake up. Please wait a moment and try again.')
     }
     setLoading(false)
   }
