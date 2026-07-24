@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useNavigate, Navigate, Link } from 'react-router-dom'
 import './App.css'
 
-const API_URL = 'http://127.0.0.1:8000/api/v1'
+const API_BASE = import.meta.env.VITE_API_URL 
+  ? import.meta.env.VITE_API_URL.replace(/\/$/, '') 
+  : 'http://127.0.0.1:8000'
+const API_URL = `${API_BASE}/api/v1`
 
 function LandingPage() {
   return (
@@ -164,6 +167,8 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
   const [subscriptions, setSubscriptions] = useState<any[]>([])
   const [invoices, setInvoices] = useState<any[]>([])
   const [analytics, setAnalytics] = useState<any>(null)
+  const [logs, setLogs] = useState<any[] | null>(null)
+  const [showLogsModal, setShowLogsModal] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -215,9 +220,8 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
       } else {
         const data = await res.json()
         alert(`Error: ${data.detail}`)
-        // Dunning simulation
         if (simulateFail) {
-          fetchData() // Refresh to show "Past Due" status
+          fetchData()
         }
       }
     } catch (err) {
@@ -241,7 +245,7 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
   }
 
   const handleCancel = async (subId: string) => {
-    if (!window.confirm("Are you sure you want to cancel this subscription? This will trigger the churn webhook.")) return;
+    if (!window.confirm("Are you sure you want to cancel this subscription?")) return;
     try {
       const res = await fetch(`${API_URL}/subscriptions/${subId}/cancel`, {
         method: 'POST',
@@ -254,6 +258,75 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
     } catch (err) {
       alert("Error cancelling")
     }
+  }
+
+  const handleUpdatePayment = async (subId: string) => {
+    try {
+      const res = await fetch(`${API_URL}/subscriptions/${subId}/pay`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        alert("Payment method updated successfully! Subscription is now active.")
+        fetchData()
+      } else {
+        alert("Failed to update payment method.")
+      }
+    } catch (err) {
+      alert("Error processing payment update.")
+    }
+  }
+
+  const handleRunRetryJob = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/retry-dunning`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        const data = await res.json()
+        alert(data.message)
+        fetchData()
+      }
+    } catch (err) {
+      alert("Error executing retry job.")
+    }
+  }
+
+  const handleFetchLogs = async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/logs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (res.ok) {
+        setLogs(await res.json())
+        setShowLogsModal(true)
+      }
+    } catch (err) {
+      alert("Error fetching audit logs.")
+    }
+  }
+
+  const handleDownloadInvoice = (inv: any) => {
+    const content = `====================================
+SubFlow Invoice #${inv.invoice_number}
+====================================
+Date: ${new Date(inv.created_at).toLocaleDateString()}
+Status: ${inv.status.toUpperCase()}
+------------------------------------
+Subtotal: ₹${(inv.subtotal / 100).toFixed(2)}
+Tax:      ₹${(inv.tax / 100).toFixed(2)}
+Total:    ₹${(inv.total / 100).toFixed(2)}
+====================================
+Thank you for choosing SubFlow!`
+
+    const blob = new Blob([content], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${inv.invoice_number}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}><div className="spinner" style={{ margin: '0 auto' }}></div></div>
@@ -303,14 +376,47 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
                     <h3>Dunning & Failed Payments</h3>
                     <h1 style={{ color: 'var(--danger-color)' }}>{analytics.failed_payments}</h1>
                     <p>Total failed transactions requiring retry/dunning.</p>
-                    <button className="outline" style={{ marginTop: '1rem' }}>Run Retry Job</button>
+                    <button className="outline" style={{ marginTop: '1rem' }} onClick={handleRunRetryJob}>Run Retry Job</button>
                   </div>
                   <div className="panel">
                     <h3>Audit Logs & Webhooks</h3>
                     <p>System is tracking all webhooks and authentications securely.</p>
-                    <button className="outline" style={{ marginTop: '1rem' }}>View Logs</button>
+                    <button className="outline" style={{ marginTop: '1rem' }} onClick={handleFetchLogs}>View Logs</button>
                   </div>
                 </div>
+
+                {showLogsModal && (
+                  <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+                    <div className="panel" style={{ width: '90%', maxWidth: '800px', maxHeight: '80vh', overflowY: 'auto' }}>
+                      <div className="flex justify-between align-center" style={{ marginBottom: '1rem' }}>
+                        <h2>Audit & Event Logs</h2>
+                        <button className="outline" onClick={() => setShowLogsModal(false)}>Close</button>
+                      </div>
+                      {logs && logs.length > 0 ? (
+                        <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                              <th style={{ padding: '0.5rem' }}>Time</th>
+                              <th style={{ padding: '0.5rem' }}>User / Sender</th>
+                              <th style={{ padding: '0.5rem' }}>Action</th>
+                              <th style={{ padding: '0.5rem' }}>Details</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {logs.map((log: any) => (
+                              <tr key={log.id} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                                <td style={{ padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{new Date(log.created_at).toLocaleString()}</td>
+                                <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}>{log.user_id}</td>
+                                <td style={{ padding: '0.5rem', fontSize: '0.85rem' }}><span className="badge neutral">{log.action}</span></td>
+                                <td style={{ padding: '0.5rem', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{log.details}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : <p>No logs recorded yet.</p>}
+                    </div>
+                  </div>
+                )}
               </>
             ) : <p>Loading analytics...</p>}
           </div>
@@ -339,7 +445,7 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
                             <div style={{ padding: '1rem', background: 'rgba(255, 74, 74, 0.1)', border: '1px solid var(--danger-color)', borderRadius: '8px', marginTop: '1rem' }}>
                               <h4 style={{ color: 'var(--danger-color)', margin: 0 }}>Dunning Active</h4>
                               <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Payment failed. We will retry the charge in 24 hours.</p>
-                              <button style={{ marginTop: '1rem', width: '100%', background: 'var(--danger-color)' }}>Update Payment Method</button>
+                              <button style={{ marginTop: '1rem', width: '100%', background: 'var(--danger-color)' }} onClick={() => handleUpdatePayment(sub.id)}>Update Payment Method</button>
                             </div>
                           )}
                         </div>
@@ -370,7 +476,7 @@ function Dashboard({ token, setToken }: { token: string, setToken: (t: string | 
                             <td style={{ padding: '0.5rem', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>{new Date(inv.created_at).toLocaleDateString()}</td>
                             <td style={{ padding: '0.5rem' }}>₹{inv.total / 100}</td>
                             <td style={{ padding: '0.5rem' }}><span className="badge success">{inv.status}</span></td>
-                            <td style={{ padding: '0.5rem' }}><button className="outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>DL</button></td>
+                            <td style={{ padding: '0.5rem' }}><button className="outline" style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem' }} onClick={() => handleDownloadInvoice(inv)}>DL</button></td>
                           </tr>
                         ))}
                       </tbody>

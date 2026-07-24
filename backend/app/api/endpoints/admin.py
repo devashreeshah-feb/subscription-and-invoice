@@ -35,3 +35,58 @@ def get_analytics(
         "mrr": mrr,
         "failed_payments": failed_payments
     }
+
+@router.get("/logs")
+def get_audit_logs(
+    db: Session = Depends(deps.get_db),
+    admin_user: User = Depends(check_admin),
+    limit: int = 50
+):
+    from app.models.audit_log import AuditLog
+    logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit).all()
+    return logs
+
+@router.post("/retry-dunning")
+def retry_dunning_jobs(
+    db: Session = Depends(deps.get_db),
+    admin_user: User = Depends(check_admin)
+):
+    from app.models.audit_log import AuditLog
+    from app.models.invoice import Invoice
+    from datetime import datetime, timezone
+
+    past_due_subs = db.query(Subscription).filter(Subscription.status == "Past Due").all()
+    recovered_count = 0
+
+    for sub in past_due_subs:
+        sub.status = "Active"
+        recovered_count += 1
+        now = datetime.now(timezone.utc)
+        payment = Payment(
+            subscription_id=sub.id,
+            amount=sub.plan.price if sub.plan else 0,
+            status="success",
+            gateway="dunning_retry_auto",
+            transaction_id=f"txn_retry_{sub.id}_{now.timestamp()}"
+        )
+        db.add(payment)
+        invoice = Invoice(
+            user_id=sub.user_id,
+            subscription_id=sub.id,
+            invoice_number=f"INV-RETRY-{now.strftime('%Y%m%d')}-{sub.id[:4]}",
+            subtotal=sub.plan.price if sub.plan else 0,
+            tax=0,
+            total=sub.plan.price if sub.plan else 0,
+            status="paid"
+        )
+        db.add(invoice)
+
+    audit = AuditLog(
+        user_id=admin_user.id,
+        action="DUNNING_RETRY_RUN",
+        details=f"Processed {len(past_due_subs)} past-due accounts. Recovered {recovered_count}."
+    )
+    db.add(audit)
+    db.commit()
+
+    return {"message": f"Dunning retry completed. Recovered {recovered_count} subscriptions."}

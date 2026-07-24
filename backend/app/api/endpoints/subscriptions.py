@@ -137,6 +137,42 @@ def cancel_subscription(
     db.commit()
     return {"message": "Subscription cancelled"}
 
+@router.post("/{subscription_id}/pay", response_model=SubscriptionResponse)
+def retry_payment(
+    subscription_id: str,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user)
+):
+    sub = db.query(Subscription).filter(Subscription.id == subscription_id, Subscription.user_id == current_user.id).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+        
+    now = datetime.now(timezone.utc)
+    sub.status = "Active"
+    
+    payment = Payment(
+        subscription_id=sub.id,
+        amount=sub.plan.price if sub.plan else 0,
+        status="success",
+        gateway="pseudo_stripe_retry",
+        transaction_id=f"txn_pay_{sub.id}_{now.timestamp()}"
+    )
+    db.add(payment)
+    
+    invoice = Invoice(
+        user_id=current_user.id,
+        subscription_id=sub.id,
+        invoice_number=f"INV-REPAY-{now.strftime('%Y%m%d')}-{sub.id[:4]}",
+        subtotal=sub.plan.price if sub.plan else 0,
+        tax=0,
+        total=sub.plan.price if sub.plan else 0,
+        status="paid"
+    )
+    db.add(invoice)
+    db.commit()
+    db.refresh(sub)
+    return sub
+
 @router.get("/me", response_model=List[SubscriptionResponse])
 def get_my_subscriptions(
     db: Session = Depends(deps.get_db),
