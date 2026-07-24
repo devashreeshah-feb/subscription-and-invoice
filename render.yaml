@@ -42,5 +42,5 @@ services:
         fromService:
           type: web
           name: subflow-backend
-          property: url
+          property: host
 

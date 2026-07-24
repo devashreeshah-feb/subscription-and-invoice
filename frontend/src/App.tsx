@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, useNavigate, Navigate, Link } from 'react-router-dom'
 import './App.css'
 
-const API_BASE = import.meta.env.VITE_API_URL 
-  ? import.meta.env.VITE_API_URL.replace(/\/$/, '') 
+const rawApiUrl = import.meta.env.VITE_API_URL
+const API_BASE = rawApiUrl
+  ? (rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://') ? rawApiUrl.replace(/\/$/, '') : `https://${rawApiUrl.replace(/\/$/, '')}`)
   : 'http://127.0.0.1:8000'
 const API_URL = `${API_BASE}/api/v1`
 
